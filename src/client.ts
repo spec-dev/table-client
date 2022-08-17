@@ -78,9 +78,9 @@ export default class SpecTableClient {
         let resp: Response
         try {
             resp = await this._makeQueryRequest(
-                this.streamUrl, 
+                this.streamUrl,
                 this._packageQueryAsPayload(query),
-                abortController,
+                abortController
             )
         } catch (err) {
             throw `Stream query request error: ${err}`
@@ -90,7 +90,7 @@ export default class SpecTableClient {
         // Attach a reader to the response body.
         const reader = resp.body.getReader()
         if (!reader) throw 'Failed to attach reader to stream query.'
-        
+
         // Stream query results to a new stream response.
         const stream = new ReadableStream({
             start(controller) {
@@ -114,7 +114,11 @@ export default class SpecTableClient {
         return new Response(stream, { headers: streamRespHeaders })
     }
 
-    async _makeQueryRequest(url: string, payload: StringKeyMap, abortController?: AbortController): Promise<Response> {
+    async _makeQueryRequest(
+        url: string,
+        payload: StringKeyMap,
+        abortController?: AbortController
+    ): Promise<Response> {
         // Stringify body.
         let body
         try {
