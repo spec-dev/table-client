@@ -1,7 +1,8 @@
 import config from './lib/config'
 import { SpecTableClientOptions, StringKeyMap } from './lib/types'
 import { Knex } from 'knex'
-import { fetch } from 'cross-fetch'
+// import { fetch } from 'cross-fetch'
+import { ReadableStream } from 'node:stream/web'
 
 const DEFAULT_OPTIONS = {
     origin: config.SHARED_TABLES_ORIGIN,
@@ -85,6 +86,7 @@ export default class SpecTableClient {
         } catch (err) {
             throw `Stream query request error: ${err}`
         }
+
         if (!resp || !resp.body) throw 'Stream query error - No response body'
 
         // Attach a reader to the response body.
