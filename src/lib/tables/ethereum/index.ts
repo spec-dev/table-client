@@ -1,5 +1,4 @@
-import { schema } from '../builder'
-import { Knex } from 'knex'
+import { queryBuilder } from '../queryBuilder'
 
 const SCHEMA_NAME = 'ethereum'
 const tableNames = {
@@ -10,11 +9,11 @@ const tableNames = {
     CONTRACTS: 'contracts',
 }
 
-const blocks = (tx?: any): Knex.QueryBuilder => schema(SCHEMA_NAME, tx).from(tableNames.BLOCKS)
-const transactions = (tx?: any): Knex.QueryBuilder => schema(SCHEMA_NAME, tx).from(tableNames.TRANSACTIONS)
-const logs = (tx?: any): Knex.QueryBuilder => schema(SCHEMA_NAME, tx).from(tableNames.LOGS)
-const traces = (tx?: any): Knex.QueryBuilder => schema(SCHEMA_NAME, tx).from(tableNames.TRACES)
-const contracts = (tx?: any): Knex.QueryBuilder => schema(SCHEMA_NAME, tx).from(tableNames.CONTRACTS)
+const blocks = () => queryBuilder.withSchema(SCHEMA_NAME).from(tableNames.BLOCKS)
+const transactions = () => queryBuilder.withSchema(SCHEMA_NAME).from(tableNames.TRANSACTIONS)
+const logs = () => queryBuilder.withSchema(SCHEMA_NAME).from(tableNames.LOGS)
+const traces = () => queryBuilder.withSchema(SCHEMA_NAME).from(tableNames.TRACES)
+const contracts = () => queryBuilder.withSchema(SCHEMA_NAME).from(tableNames.CONTRACTS)
 
 export default {
     blocks,

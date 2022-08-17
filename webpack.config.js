@@ -5,10 +5,10 @@ module.exports = {
     entry: './src/index.ts',
     output: {
         path: path.resolve(__dirname, 'dist/umd'),
-        filename: 'compound.js',
+        filename: 'table-client.js',
         library: {
             type: 'umd',
-            name: 'compound',
+            name: 'table-client',
         },
     },
     module: {

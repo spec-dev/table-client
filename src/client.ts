@@ -13,7 +13,6 @@ const DEFAULT_OPTIONS = {
  * A Javascript client for querying Spec's shared tables.
  */
 export default class SpecTableClient {
-
     protected origin: string
 
     get queryUrl(): string {
@@ -45,12 +44,12 @@ export default class SpecTableClient {
         } catch (err) {
             throw `Error running query: ${err}`
         }
-    
+
         // Require 200 status to succeed.
         if (resp.status !== 200) {
             throw `Query failed with error status ${resp.status}`
         }
-    
+
         // Parse JSON response.
         let result: any
         try {
