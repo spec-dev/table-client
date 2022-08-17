@@ -1,7 +1,6 @@
 import config from './lib/config'
 import { SpecTableClientOptions, StringKeyMap } from './lib/types'
 import { Knex } from 'knex'
-import { fetch } from 'cross-fetch'
 import { ReadableStream } from 'node:stream/web'
 
 const DEFAULT_OPTIONS = {
