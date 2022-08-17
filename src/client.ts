@@ -1,7 +1,7 @@
 import config from './lib/config'
 import { SpecTableClientOptions, StringKeyMap } from './lib/types'
 import { Knex } from 'knex'
-// import { fetch } from 'cross-fetch'
+import { fetch } from 'cross-fetch'
 import { ReadableStream } from 'node:stream/web'
 
 const DEFAULT_OPTIONS = {
@@ -98,6 +98,8 @@ export default class SpecTableClient {
             start(controller) {
                 function pump() {
                     return reader.read().then(({ done, value }) => {
+                        console.log('Got chunk with length', value?.length, typeof value)
+
                         if (done) {
                             controller.close()
                             return
