@@ -7,6 +7,11 @@ const DEFAULT_OPTIONS = {
     origin: config.SHARED_TABLES_ORIGIN,
 }
 
+const streamRespHeaders = {
+    'Content-Type': 'application/json',
+    'Transfer-Encoding': 'chunked',
+}
+
 /**
  * Spec Table Client.
  *
@@ -18,6 +23,12 @@ export default class SpecTableClient {
     get queryUrl(): string {
         const url = new URL(this.origin)
         url.pathname = '/query'
+        return url.toString()
+    }
+
+    get streamUrl(): string {
+        const url = new URL(this.origin)
+        url.pathname = '/stream'
         return url.toString()
     }
 
@@ -40,7 +51,7 @@ export default class SpecTableClient {
         // Perform basic JSON POST request.
         let resp: Response
         try {
-            resp = await this._performBasicQuery(this._packageQueryAsPayload(query))
+            resp = await this._makeQueryRequest(this.queryUrl, this._packageQueryAsPayload(query))
         } catch (err) {
             throw `Error running query: ${err}`
         }
@@ -61,25 +72,68 @@ export default class SpecTableClient {
         return result
     }
 
-    streamQuery(query: Knex.QueryBuilder) {
-        // Create request
-        // Perform request
-        // Build response
-        // Set up controller and shit
+    async streamQuery(query: Knex.QueryBuilder): Promise<Response> {
+        // Make initial request.
+        const abortController = new AbortController()
+        let resp: Response
+        try {
+            resp = await this._makeQueryRequest(
+                this.streamUrl, 
+                this._packageQueryAsPayload(query),
+                abortController,
+            )
+        } catch (err) {
+            throw `Stream query request error: ${err}`
+        }
+        if (!resp || !resp.body) throw 'Stream query error - No response body'
+
+        // Attach a reader to the response body.
+        const reader = resp.body.getReader()
+        if (!reader) throw 'Failed to attach reader to stream query.'
+        
+        // Stream query results to a new stream response.
+        const stream = new ReadableStream({
+            start(controller) {
+                function pump() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            controller.close()
+                            return
+                        }
+                        controller.enqueue(value)
+                        return pump()
+                    })
+                }
+                return pump()
+            },
+            cancel() {
+                abortController.abort()
+            },
+        })
+
+        return new Response(stream, { headers: streamRespHeaders })
     }
 
-    async _performBasicQuery(payload: StringKeyMap): Promise<Response> {
+    async _makeQueryRequest(url: string, payload: StringKeyMap, abortController?: AbortController): Promise<Response> {
+        // Stringify body.
         let body
         try {
             body = JSON.stringify(payload)
         } catch (err) {
             throw `JSON error while packaging payload, ${payload}: ${err}`
         }
-        return fetch(this.queryUrl, {
+
+        // Create options with optional abort controller signal.
+        const options: StringKeyMap = {
             method: 'POST',
             headers: this.requestHeaders,
             body,
-        })
+        }
+        if (abortController) {
+            options.signal = abortController.signal
+        }
+
+        return fetch(url, options)
     }
 
     _packageQueryAsPayload(query: Knex.QueryBuilder): StringKeyMap {
