@@ -136,8 +136,9 @@ export default class SpecTableClient {
         // Handle user-provided transforms and modify each record accordingly.
         let streamController
         jsonParser.onValue = async (record) => {
-            const endRecord = await this._transformRecord(record, transforms)
-            const buffer = new TextEncoder().encode(JSON.stringify(endRecord))
+            const transformedRecord = await this._transformRecord(record, transforms)
+            if (!transformedRecord) return
+            const buffer = new TextEncoder().encode(JSON.stringify(transformedRecord))
             streamController?.enqueue(buffer)
         }
 
@@ -173,14 +174,21 @@ export default class SpecTableClient {
         return new Response(stream, { headers: streamRespHeaders })
     }
 
+    /**
+     * Run a record through a list of user-defined transforms.
+     */
     async _transformRecord(record: any, transforms: RecordTransform[] = []): Promise<any> {
         let transformedRecord = record
         for (const transform of transforms) {
             transformedRecord = await transform(transformedRecord)
+            if (transformedRecord === null) break // support for filter transforms
         }
         return transformedRecord
     }
 
+    /**
+     * Initial query POST request.
+     */
     async _makeQueryRequest(
         url: string,
         payload: StringKeyMap,
@@ -207,6 +215,9 @@ export default class SpecTableClient {
         return fetch(url, options)
     }
 
+    /**
+     * Convert a knex query to it's raw sql and bindings.
+     */
     _packageQueryAsPayload(query: Knex.QueryBuilder): StringKeyMap {
         try {
             return query.toSQL().toNative()
