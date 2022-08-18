@@ -5,6 +5,7 @@ export type SpecTableClientOptions = {
 }
 
 export type SpecTableQueryOptions = {
+    transforms?: RecordTransform[]
     camelResponse?: boolean
 }
 
