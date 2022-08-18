@@ -1,7 +1,8 @@
 import config from './lib/config'
-import { SpecTableClientOptions, StringKeyMap } from './lib/types'
+import { RecordTransform, SpecTableClientOptions, StringKeyMap } from './lib/types'
 import { Knex } from 'knex'
 import { ReadableStream } from 'node:stream/web'
+import { JSONParser } from './json/index'
 
 const DEFAULT_OPTIONS = {
     origin: config.SHARED_TABLES_ORIGIN,
@@ -72,7 +73,10 @@ export default class SpecTableClient {
         return result
     }
 
-    async streamQuery(query: Knex.QueryBuilder): Promise<Response> {
+    async streamQuery(
+        query: Knex.QueryBuilder,
+        transforms: RecordTransform[] = []
+    ): Promise<Response> {
         // Make initial request.
         const abortController = new AbortController()
         let resp: Response
@@ -85,27 +89,51 @@ export default class SpecTableClient {
         } catch (err) {
             throw `Stream query request error: ${err}`
         }
-
         if (!resp || !resp.body) throw 'Stream query error - No response body'
 
-        // Attach a reader to the response body.
+        // Get response body as a readable stream.
         const reader = resp.body.getReader()
         if (!reader) throw 'Failed to attach reader to stream query.'
+
+        // Create a JSON parser that parses every individual record on-the-fly from
+        // the query stream and applies the given transforms (if any are provided).
+        const jsonparser = new JSONParser({
+            stringBufferSize: undefined,
+            paths: ['$.*'],
+            keepStack: false,
+        })
+
+        // Handle user-provided transforms and modify each record accordingly.
+        let streamController
+        jsonparser.onValue = async (record) => {
+            const endRecord = await this._transformRecord(record, transforms)
+            const buffer = new TextEncoder().encode(JSON.stringify(endRecord))
+            streamController?.enqueue(buffer)
+        }
+
+        // Send result segment over the wire.
+        const enqueue = (value) =>
+            (transforms || []).length > 0
+                ? jsonparser.write(value)
+                : streamController.enqueue(value)
 
         // Stream query results to a new stream response.
         const stream = new ReadableStream({
             start(controller) {
-                function pump() {
-                    return reader.read().then(({ done, value }) => {
-                        console.log('Got chunk with length', value?.length, typeof value)
-
+                streamController = controller
+                async function pump() {
+                    try {
+                        const { done, value } = await reader.read()
                         if (done) {
                             controller.close()
                             return
                         }
-                        controller.enqueue(value)
+                        enqueue(value)
                         return pump()
-                    })
+                    } catch (err) {
+                        abortController.abort()
+                        throw err
+                    }
                 }
                 return pump()
             },
@@ -115,6 +143,14 @@ export default class SpecTableClient {
         })
 
         return new Response(stream, { headers: streamRespHeaders })
+    }
+
+    async _transformRecord(record: any, transforms: RecordTransform[] = []): Promise<any> {
+        let transformedRecord = record
+        for (const transform of transforms) {
+            transformedRecord = await transform(transformedRecord)
+        }
+        return transformedRecord
     }
 
     async _makeQueryRequest(
