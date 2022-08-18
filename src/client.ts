@@ -97,7 +97,10 @@ export default class SpecTableClient {
     /**
      * Perform a query and stream the result.
      */
-    async streamQuery(query: Knex.QueryBuilder, options?: SpecTableQueryOptions): Promise<Response> {
+    async streamQuery(
+        query: Knex.QueryBuilder,
+        options?: SpecTableQueryOptions
+    ): Promise<Response> {
         // Make initial request.
         const abortController = new AbortController()
         let resp: Response
@@ -139,9 +142,8 @@ export default class SpecTableClient {
         }
 
         // Send result segment over the wire.
-        const enqueue = value => transforms.length > 0 
-            ? jsonParser.write(value)
-            : streamController.enqueue(value)
+        const enqueue = (value) =>
+            transforms.length > 0 ? jsonParser.write(value) : streamController.enqueue(value)
 
         // Stream query results to a new stream response.
         const stream = new ReadableStream({
