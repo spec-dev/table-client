@@ -1,11 +1,21 @@
 import config from './lib/config'
-import { RecordTransform, SpecTableClientOptions, StringKeyMap } from './lib/types'
+import {
+    RecordTransform,
+    SpecTableClientOptions,
+    StringKeyMap,
+    SpecTableQueryOptions,
+} from './lib/types'
 import { Knex } from 'knex'
 import { ReadableStream } from 'node:stream/web'
 import { JSONParser } from './json/index'
+import { camelizeKeys } from 'humps'
 
 const DEFAULT_OPTIONS = {
     origin: config.SHARED_TABLES_ORIGIN,
+}
+
+const DEFAULT_QUERY_OPTIONS = {
+    camelResponse: false,
 }
 
 const streamRespHeaders = {
@@ -48,8 +58,13 @@ export default class SpecTableClient {
         this.origin = settings.origin
     }
 
-    async runQuery(query: Knex.QueryBuilder): Promise<any> {
-        // Perform basic JSON POST request.
+    /**
+     * Perform a query and get the result.
+     */
+    async runQuery(query: Knex.QueryBuilder, options?: SpecTableQueryOptions): Promise<any> {
+        const opts = { ...DEFAULT_QUERY_OPTIONS, ...options }
+
+        // Perform basic POST request.
         let resp: Response
         try {
             resp = await this._makeQueryRequest(this.queryUrl, this._packageQueryAsPayload(query))
@@ -70,12 +85,21 @@ export default class SpecTableClient {
             throw `Query response error: Failed to parse JSON response data: ${err}`
         }
 
+        // Convert snakecase to camelcase if desired.
+        if (opts.camelResponse) {
+            result = camelizeKeys(result)
+        }
+
         return result
     }
 
+    /**
+     * Perform a query and stream the result.
+     */
     async streamQuery(
         query: Knex.QueryBuilder,
-        transforms: RecordTransform[] = []
+        transforms: RecordTransform[] = [],
+        options?: SpecTableQueryOptions
     ): Promise<Response> {
         // Make initial request.
         const abortController = new AbortController()
@@ -95,17 +119,23 @@ export default class SpecTableClient {
         const reader = resp.body.getReader()
         if (!reader) throw 'Failed to attach reader to stream query.'
 
-        // Create a JSON parser that parses every individual record on-the-fly from
-        // the query stream and applies the given transforms (if any are provided).
-        const jsonparser = new JSONParser({
+        // Create a JSON parser that parses every individual
+        // record on-the-fly and applies the given transforms.
+        const jsonParser = new JSONParser({
             stringBufferSize: undefined,
             paths: ['$.*'],
             keepStack: false,
         })
 
+        // Add key-camelization as a transform if specified.
+        transforms = transforms || []
+        if (options?.camelResponse) {
+            transforms.push(async (obj) => camelizeKeys(obj)) // leave async
+        }
+
         // Handle user-provided transforms and modify each record accordingly.
         let streamController
-        jsonparser.onValue = async (record) => {
+        jsonParser.onValue = async (record) => {
             const endRecord = await this._transformRecord(record, transforms)
             const buffer = new TextEncoder().encode(JSON.stringify(endRecord))
             streamController?.enqueue(buffer)
@@ -113,9 +143,7 @@ export default class SpecTableClient {
 
         // Send result segment over the wire.
         const enqueue = (value) =>
-            (transforms || []).length > 0
-                ? jsonparser.write(value)
-                : streamController.enqueue(value)
+            transforms.length > 0 ? jsonParser.write(value) : streamController.enqueue(value)
 
         // Stream query results to a new stream response.
         const stream = new ReadableStream({
