@@ -62,7 +62,7 @@ export default class SpecTableClient {
     /**
      * Perform a query and get the result.
      */
-    async runQuery(query: Knex.QueryBuilder, options?: SpecTableQueryOptions): Promise<any> {
+    async runQuery<T>(query: Knex.QueryBuilder, options?: SpecTableQueryOptions): Promise<T> {
         const opts = { ...DEFAULT_QUERY_OPTIONS, ...options }
 
         // Perform basic POST request.
@@ -87,20 +87,20 @@ export default class SpecTableClient {
         }
 
         // Add key-camelization as a transform if specified.
-        const transforms = options?.transforms || []
-        if (options?.camelResponse) {
+        const transforms = opts?.transforms || []
+        if (opts?.camelResponse) {
             transforms.push((obj) => camelizeKeys(obj))
         }
 
         if (!transforms.length) {
-            return result
+            return result as T
         }
 
         if (!Array.isArray) {
             return this._transformRecord(result, transforms)
         }
 
-        return result.map((r) => this._transformRecord(r, transforms)).filter((r) => !!r)
+        return result.map((r) => this._transformRecord(r, transforms)).filter((r) => !!r) as T
     }
 
     /**
@@ -110,6 +110,8 @@ export default class SpecTableClient {
         query: Knex.QueryBuilder,
         options?: SpecTableQueryOptions
     ): Promise<Response> {
+        const opts = { ...DEFAULT_QUERY_OPTIONS, ...options }
+
         // Make initial request.
         const abortController = new AbortController()
         let resp: Response
@@ -137,22 +139,31 @@ export default class SpecTableClient {
         })
 
         // Add key-camelization as a transform if specified.
-        const transforms = options?.transforms || []
-        if (options?.camelResponse) {
+        const transforms = opts?.transforms || []
+        if (opts?.camelResponse) {
             transforms.push((obj) => camelizeKeys(obj))
         }
 
         let streamController
         let streamClosed = false
+        let hasEnqueuedOpeningBracket = false
+        let hasEnqueuedAnObject = false
 
         // Handle user-provided transforms and modify each record accordingly.
         jsonParser.onValue = (record) => {
             if (!record || streamClosed) return
             record = record as StringKeyMap
 
+            if (!hasEnqueuedOpeningBracket) {
+                streamController.enqueue(new TextEncoder().encode('['))
+                hasEnqueuedOpeningBracket = true
+            }
+
             // Enqueue error and close stream if error encountered.
             if (record.error) {
                 enqueueJSON(record)
+                hasEnqueuedAnObject = true
+                streamController.enqueue(new TextEncoder().encode(']'))
                 streamController?.close()
                 streamClosed = true
                 return
@@ -164,11 +175,16 @@ export default class SpecTableClient {
 
             // Convert record back to buffer and enqueue it.
             enqueueJSON(transformedRecord)
+            hasEnqueuedAnObject = true
         }
 
         const enqueueJSON = (data) => {
             try {
-                const buffer = new TextEncoder().encode(JSON.stringify(data))
+                let str = JSON.stringify(data)
+                if (hasEnqueuedAnObject) {
+                    str = ',' + str
+                }
+                const buffer = new TextEncoder().encode(str)
                 streamController?.enqueue(buffer)
             } catch (err) {
                 console.error('Error enqueueing JSON data', data)
@@ -186,6 +202,7 @@ export default class SpecTableClient {
                         value && jsonParser.write(value)
                         if (done) {
                             setTimeout(() => {
+                                controller.enqueue(new TextEncoder().encode(']'))
                                 controller.close()
                                 streamClosed = true
                             }, 10)
