@@ -86,12 +86,21 @@ export default class SpecTableClient {
             throw `Query response error: Failed to parse JSON response data: ${err}`
         }
 
-        // Convert snakecase to camelcase if desired.
-        if (opts.camelResponse) {
-            result = camelizeKeys(result)
+        // Add key-camelization as a transform if specified.
+        const transforms = options?.transforms || []
+        if (options?.camelResponse) {
+            transforms.push((obj) => camelizeKeys(obj))
         }
 
-        return result
+        if (!transforms.length) {
+            return result
+        }
+
+        if (!Array.isArray) {
+            return this._transformRecord(result, transforms)
+        }
+
+        return result.map((r) => this._transformRecord(r, transforms)).filter((r) => !!r)
     }
 
     /**
@@ -130,21 +139,41 @@ export default class SpecTableClient {
         // Add key-camelization as a transform if specified.
         const transforms = options?.transforms || []
         if (options?.camelResponse) {
-            transforms.push(async (obj) => camelizeKeys(obj)) // leave async
+            transforms.push((obj) => camelizeKeys(obj))
         }
+
+        let streamController
+        let streamClosed = false
 
         // Handle user-provided transforms and modify each record accordingly.
-        let streamController
-        jsonParser.onValue = async (record) => {
-            const transformedRecord = await this._transformRecord(record, transforms)
+        jsonParser.onValue = (record) => {
+            if (!record || streamClosed) return
+            record = record as StringKeyMap
+
+            // Enqueue error and close stream if error encountered.
+            if (record.error) {
+                enqueueJSON(record)
+                streamController?.close()
+                streamClosed = true
+                return
+            }
+
+            // Apply any record transforms.
+            const transformedRecord = this._transformRecord(record, transforms)
             if (!transformedRecord) return
-            const buffer = new TextEncoder().encode(JSON.stringify(transformedRecord))
-            streamController?.enqueue(buffer)
+
+            // Convert record back to buffer and enqueue it.
+            enqueueJSON(transformedRecord)
         }
 
-        // Send result segment over the wire.
-        const enqueue = (value) =>
-            transforms.length > 0 ? jsonParser.write(value) : streamController.enqueue(value)
+        const enqueueJSON = (data) => {
+            try {
+                const buffer = new TextEncoder().encode(JSON.stringify(data))
+                streamController?.enqueue(buffer)
+            } catch (err) {
+                console.error('Error enqueueing JSON data', data)
+            }
+        }
 
         // Stream query results to a new stream response.
         const stream = new ReadableStream({
@@ -152,12 +181,16 @@ export default class SpecTableClient {
                 streamController = controller
                 async function pump() {
                     try {
+                        if (streamClosed) return
                         const { done, value } = await reader.read()
+                        value && jsonParser.write(value)
                         if (done) {
-                            controller.close()
+                            setTimeout(() => {
+                                controller.close()
+                                streamClosed = true
+                            }, 10)
                             return
                         }
-                        enqueue(value)
                         return pump()
                     } catch (err) {
                         abortController.abort()
@@ -177,10 +210,10 @@ export default class SpecTableClient {
     /**
      * Run a record through a list of user-defined transforms.
      */
-    async _transformRecord(record: any, transforms: RecordTransform[] = []): Promise<any> {
+    _transformRecord(record: StringKeyMap, transforms: RecordTransform[] = []): any {
         let transformedRecord = record
         for (const transform of transforms) {
-            transformedRecord = await transform(transformedRecord)
+            transformedRecord = transform(transformedRecord)
             if (transformedRecord === null) break // support for filter transforms
         }
         return transformedRecord

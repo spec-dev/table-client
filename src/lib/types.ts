@@ -9,4 +9,4 @@ export type SpecTableQueryOptions = {
     camelResponse?: boolean
 }
 
-export type RecordTransform = (input: any) => Promise<any>
+export type RecordTransform = (input: any) => any
