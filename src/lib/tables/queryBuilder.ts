@@ -3,11 +3,10 @@ import PostgresQueryBuilder from 'knex/lib/dialects/postgres/query/pg-querybuild
 import PostgresQueryCompiler from 'knex/lib/dialects/postgres/query/pg-querycompiler'
 import { makeEscape } from 'knex/lib/util/string'
 
-/**
- * Create monkey-patched knex.js Postgres query builder.
- */
-function createQueryBuilder() {
-    const client = new Client({ client: 'pg' })
+let client
+
+function createClient() {
+    client = new Client({ client: 'pg' })
 
     client.wrapIdentifierImpl = (value) => {
         if (value === '*') return value
@@ -70,7 +69,7 @@ function createQueryBuilder() {
     client.dialect = 'postgresql'
     client.driverName = 'pg'
     client.canCancelQuery = true
-    ;(client._escapeBinding = makeEscape({
+    client._escapeBinding = makeEscape({
         escapeArray(val, esc) {
             return esc(arrayString(val, esc))
         },
@@ -107,11 +106,15 @@ function createQueryBuilder() {
             }
             return JSON.stringify(val)
         },
-    })),
-        (client.queryBuilder = () => new PostgresQueryBuilder(client))
-    const builder = client.queryBuilder()
-    client.queryCompiler = () => new PostgresQueryCompiler(client, builder)
-    return builder
+    })
+    client.queryCompiler = (builder) => new PostgresQueryCompiler(client, builder)
+    client.queryBuilder = () => new PostgresQueryBuilder(client)
 }
 
-export const queryBuilder = createQueryBuilder()
+/**
+ * Create monkey-patched knex.js Postgres query builder.
+ */
+export function newQueryBuilder() {
+    client || createClient()
+    return client.queryBuilder()
+}

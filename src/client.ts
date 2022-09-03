@@ -16,7 +16,7 @@ const DEFAULT_OPTIONS = {
 
 const DEFAULT_QUERY_OPTIONS = {
     transforms: [],
-    camelResponse: false,
+    camelResponse: true,
 }
 
 const streamRespHeaders = {
