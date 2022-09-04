@@ -6,9 +6,9 @@ import {
     SpecTableQueryOptions,
 } from './lib/types'
 import { Knex } from 'knex'
-import { ReadableStream } from 'node:stream/web'
 import { JSONParser } from './json/index'
 import { camelizeKeys } from 'humps'
+import fetch, { Response } from 'node-fetch'
 
 const DEFAULT_OPTIONS = {
     origin: config.SHARED_TABLES_ORIGIN,
@@ -106,10 +106,7 @@ export default class SpecTableClient {
     /**
      * Perform a query and stream the result.
      */
-    async streamQuery(
-        query: Knex.QueryBuilder,
-        options?: SpecTableQueryOptions
-    ): Promise<Response> {
+    async streamQuery(query: Knex.QueryBuilder, writeable: any, options?: SpecTableQueryOptions) {
         const opts = { ...DEFAULT_QUERY_OPTIONS, ...options }
 
         // Make initial request.
@@ -126,10 +123,6 @@ export default class SpecTableClient {
         }
         if (!resp || !resp.body) throw 'Stream query error - No response body'
 
-        // Get response body as a readable stream.
-        const reader = resp.body.getReader()
-        if (!reader) throw 'Failed to attach reader to stream query.'
-
         // Create a JSON parser that parses every individual
         // record on-the-fly and applies the given transforms.
         const jsonParser = new JSONParser({
@@ -144,7 +137,6 @@ export default class SpecTableClient {
             transforms.push((obj) => camelizeKeys(obj))
         }
 
-        let streamController
         let streamClosed = false
         let hasEnqueuedOpeningBracket = false
         let hasEnqueuedAnObject = false
@@ -155,7 +147,7 @@ export default class SpecTableClient {
             record = record as StringKeyMap
 
             if (!hasEnqueuedOpeningBracket) {
-                streamController.enqueue(new TextEncoder().encode('['))
+                writeable.write(new TextEncoder().encode('['))
                 hasEnqueuedOpeningBracket = true
             }
 
@@ -163,8 +155,8 @@ export default class SpecTableClient {
             if (record.error) {
                 enqueueJSON(record)
                 hasEnqueuedAnObject = true
-                streamController.enqueue(new TextEncoder().encode(']'))
-                streamController?.close()
+                writeable.write(new TextEncoder().encode(']'))
+                writeable.end()
                 streamClosed = true
                 return
             }
@@ -185,43 +177,26 @@ export default class SpecTableClient {
                     str = ',' + str
                 }
                 const buffer = new TextEncoder().encode(str)
-                streamController?.enqueue(buffer)
+                writeable.write(buffer)
             } catch (err) {
                 console.error('Error enqueueing JSON data', data)
             }
         }
 
-        // Stream query results to a new stream response.
-        const stream = new ReadableStream({
-            start(controller) {
-                streamController = controller
-                async function pump() {
-                    try {
-                        if (streamClosed) return
-                        const { done, value } = await reader.read()
-                        value && jsonParser.write(value)
-                        if (done) {
-                            setTimeout(() => {
-                                controller.enqueue(new TextEncoder().encode(']'))
-                                controller.close()
-                                streamClosed = true
-                            }, 10)
-                            return
-                        }
-                        return pump()
-                    } catch (err) {
-                        abortController.abort()
-                        throw err
-                    }
-                }
-                return pump()
-            },
-            cancel() {
-                abortController.abort()
-            },
-        })
+        writeable.writeHead(200, streamRespHeaders)
 
-        return new Response(stream, { headers: streamRespHeaders })
+        try {
+            for await (let chunk of resp.body) {
+                chunk && !streamClosed && jsonParser.write(chunk)
+            }
+            setTimeout(() => {
+                writeable.write(new TextEncoder().encode(']'))
+                writeable.end()
+                streamClosed = true
+            }, 10)
+        } catch (err) {
+            throw `Readable stream iteration error: ${err}`
+        }
     }
 
     /**
