@@ -190,7 +190,9 @@ export default class SpecTableClient {
                 chunk && !streamClosed && jsonParser.write(chunk)
             }
             setTimeout(() => {
-                writeable.write(new TextEncoder().encode(']'))
+                writeable.write(new TextEncoder().encode(
+                    hasEnqueuedOpeningBracket ? ']' : '[]'
+                ))
                 writeable.end()
                 streamClosed = true
             }, 10)
