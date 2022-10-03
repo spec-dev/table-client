@@ -153,10 +153,12 @@ export default class SpecTableClient {
 
             // Enqueue error and close stream if error encountered.
             if (record.error) {
+                console.error(`Tables API returned error: ${record.error}`)
                 enqueueJSON(record)
                 hasEnqueuedAnObject = true
                 writeable.write(new TextEncoder().encode(']'))
                 writeable.end()
+                abortController.abort()
                 streamClosed = true
                 return
             }
@@ -187,7 +189,8 @@ export default class SpecTableClient {
 
         try {
             for await (let chunk of resp.body) {
-                chunk && !streamClosed && jsonParser.write(chunk)
+                if (streamClosed) break
+                chunk && jsonParser.write(chunk)
             }
             setTimeout(() => {
                 writeable.write(new TextEncoder().encode(hasEnqueuedOpeningBracket ? ']' : '[]'))
