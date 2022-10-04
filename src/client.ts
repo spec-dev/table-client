@@ -186,7 +186,7 @@ export default class SpecTableClient {
         }
 
         writeable.writeHead(200, streamRespHeaders)
-        
+
         try {
             console.log('Reading stream')
             for await (let chunk of resp.body) {
