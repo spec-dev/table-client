@@ -158,7 +158,7 @@ export default class SpecTableClient {
                 hasEnqueuedAnObject = true
                 writeable.write(new TextEncoder().encode(']'))
                 writeable.end()
-                abortController.abort()
+                // abortController.abort()
                 streamClosed = true
                 return
             }
@@ -187,12 +187,25 @@ export default class SpecTableClient {
 
         writeable.writeHead(200, streamRespHeaders)
 
+        resp.on('close', () => {
+            console.log('Response closed.')
+        })
+        resp.on('error', (err) => {
+            console.error('Response error', err)
+        })
+
         try {
+            console.log('Reading stream')
             for await (let chunk of resp.body) {
-                if (streamClosed) break
+                if (streamClosed) {
+                    console.log('Stream was caught closed....breaking.')
+                    break
+                }
                 chunk && jsonParser.write(chunk)
             }
+            console.log('for-await finished...')
             setTimeout(() => {
+                console.log('Stream closed within timeout.')
                 writeable.write(new TextEncoder().encode(hasEnqueuedOpeningBracket ? ']' : '[]'))
                 writeable.end()
                 streamClosed = true
@@ -235,10 +248,11 @@ export default class SpecTableClient {
             method: 'POST',
             headers: this.requestHeaders,
             body,
+            timeout: 0,
         }
-        if (abortController) {
-            options.signal = abortController.signal
-        }
+        // if (abortController) {
+        //     options.signal = abortController.signal
+        // }
 
         return fetch(url, options)
     }

@@ -1,6 +1,6 @@
 {
     "name": "@spec.dev/table-client",
-    "version": "0.0.41",
+    "version": "0.0.42",
     "description": "Spec Table Client",
     "keywords": [
         "javascript",
@@ -26,6 +26,7 @@
     "repository": "spec-dev/table-client",
     "scripts": {
         "clean": "rimraf dist",
+        "scrap": "ts-node ./src/scrap.ts",
         "format": "prettier --write \"{src,test}/**/*.ts\"",
         "build": "genversion src/lib/version.ts --es6 && run-s clean format build:*",
         "build:main": "tsc -p tsconfig.json",
