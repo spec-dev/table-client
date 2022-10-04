@@ -186,14 +186,7 @@ export default class SpecTableClient {
         }
 
         writeable.writeHead(200, streamRespHeaders)
-
-        resp.on('close', () => {
-            console.log('Response closed.')
-        })
-        resp.on('error', (err) => {
-            console.error('Response error', err)
-        })
-
+        
         try {
             console.log('Reading stream')
             for await (let chunk of resp.body) {
